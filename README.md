@@ -3,6 +3,8 @@
 ## Goal
 To build an autonomous, cloud-hosted data pipeline that monitors RSS feeds for high-intent business leads, performs AI-driven sentiment analysis, and synchronizes actionable data with a centralized CRM.
 
+![Vistula Sentinel Workflow](assests/vistula_sentinel.PNG)
+
 ## Technical Stack
 * Infrastructure: **Ubuntu VM** (Oracle Cloud Infrastructure), **Docker**, **Docker Compose**.
 * Automation Engine: **n8n** (Self-hosted via Docker through Nginx Proxy Manager).
