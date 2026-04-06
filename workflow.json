@@ -1,0 +1,351 @@
+{
+  "name": "Vistula Sentinel",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6,
+              "triggerAtMinute": 30
+            }
+          ]
+        }
+      },
+      "id": "e7d02398-e610-4ea9-9dfc-5f43ca23a140",
+      "name": "Schedule Every Hour",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [
+        -848,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $env.GOOGLE_ALERT_RSS_URL }}",
+        "options": {}
+      },
+      "id": "40469b76-cfa2-4efe-ad54-b6a21e0cbd59",
+      "name": "Read Google Alert",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        112
+      ],
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id FROM sentinel_mentions WHERE external_link = '{{ $json.link }}';",
+        "additionalFields": {}
+      },
+      "id": "95d09ee4-8fb2-462a-8234-30217be95d0f",
+      "name": "Check for Duplicates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        -448,
+        112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UR7tOlaFXWmXK4WN",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [],
+          "number": [
+            {
+              "value1": "={{ $node[\"Check for Duplicates\"].id ? 1 : 0 }}",
+              "operation": "equal"
+            }
+          ]
+        }
+      },
+      "id": "ea356b4a-b603-4dbb-abf2-82da32124cdb",
+      "name": "Is New?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        -256,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO sentinel_mentions (external_link, raw_text, sentiment, intent_score)\nVALUES (\n'{{ $json.link }}',\n'{{ $json.translation }}',\n'{{ $json.final_sentiment }}',\n{{ $json.final_intent }}\n)\nON CONFLICT (external_link) \nDO NOTHING\nRETURNING id;",
+        "additionalFields": {}
+      },
+      "id": "7518447a-eb12-4835-8774-2114d1feb2e2",
+      "name": "Insert New Mention",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 1,
+      "position": [
+        560,
+        96
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "UR7tOlaFXWmXK4WN",
+          "name": "Postgres account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.GROQ_API_KEY }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{\n{\n  \"model\": \"llama-3.1-8b-instant\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a lead analyst. Analyze the provided text. If it's in Polish, translate to English. Provide: 1. Sentiment (Positive/Neutral/Negative) 2. Intent Score (1-5). Return ONLY JSON: {\\\"translated\\\": \\\"...\\\", \\\"sentiment\\\": \\\"...\\\", \\\"intent\\\": 5}\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Analyze this lead: \" + ($json.title || \"No Title\")\n    }\n  ],\n  \"response_format\": { \"type\": \"json_object\" }\n}\n}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        48,
+        96
+      ],
+      "id": "608a36d6-f88d-4a46-adc9-ff24423548c2",
+      "name": "HTTP Request",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "LOcA4fAIyP5gSHWH",
+          "name": "Grok"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "56aa9552-554c-4233-b761-947ac85fa4e9",
+              "name": "=final_intent",
+              "value": "={{ JSON.parse($json.choices[0].message.content).intent }}",
+              "type": "number"
+            },
+            {
+              "id": "f59498f4-dcff-45fc-ac2b-280d08e5f155",
+              "name": "link",
+              "value": "={{ $node[\"Read Google Alert\"].json.link }}",
+              "type": "string"
+            },
+            {
+              "id": "dba94a79-d7d6-4e26-bf2a-4b95aba474aa",
+              "name": "translation",
+              "value": "={{ JSON.parse($json.choices[0].message.content).translated }}",
+              "type": "string"
+            },
+            {
+              "id": "cbed2351-d1ef-484c-8656-7f51e242905b",
+              "name": "final_sentiment",
+              "value": "={{ JSON.parse($json.choices[0].message.content).sentiment }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        320,
+        96
+      ],
+      "id": "a6582a45-3c68-4e02-8272-09b8f95205f4",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "45721b5c-11a9-4ee5-810f-70ef5c2d0529",
+              "leftValue": "={{ Number($('Edit Fields1').item.json.final_intent) }}",
+              "rightValue": 4,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        816,
+        96
+      ],
+      "id": "7b72f482-2d12-4a50-bed3-2c8830abf9bc",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "authentication": "appToken",
+        "email": "=lead+{{ $('Insert New Mention').item.json.id || Math.floor(Date.now() / 1000)}}@sentinel.com",
+        "additionalFields": {
+          "firstName": "={{ $('Read Google Alert').item.json.title }}",
+          "jobTitle": "={{ $('Edit Fields1').item.json.final_sentiment }}",
+          "lastName": "={{ $('Edit Fields1').item.json.final_intent }}",
+          "membershipNote": "={{ $('Edit Fields1').item.json.translation }}"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.hubspot",
+      "typeVersion": 2.2,
+      "position": [
+        1168,
+        80
+      ],
+      "id": "6ce4c597-3168-4ebf-b3aa-11b7606192e0",
+      "name": "Create or update a contact",
+      "credentials": {
+        "hubspotAppToken": {
+          "id": "Iys4KNOF8BtT2dwg",
+          "name": "HubSpot account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Every Hour": {
+      "main": [
+        [
+          {
+            "node": "Read Google Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Google Alert": {
+      "main": [
+        [
+          {
+            "node": "Check for Duplicates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Duplicates": {
+      "main": [
+        [
+          {
+            "node": "Is New?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is New?": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert New Mention": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Insert New Mention",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create or update a contact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "saveDataErrorExecution": "none",
+    "saveDataSuccessExecution": "none",
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "493c9edd-a089-4679-bc02-aad14d30329b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e179377fc4d56d53f78c32646a2c04b675e76053990fde428b56a6121ec078b5"
+  },
+  "id": "mfPUnSx1V8oOCeKK",
+  "tags": []
+}
